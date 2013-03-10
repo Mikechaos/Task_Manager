@@ -1,5 +1,20 @@
 # Assign a task, start the clock and keep records of the amount of time spent on a job
 
+## Library Modif
+
+class Array
+  def sum
+    self.reduce {|x, acc| acc += x}
+  end
+end
+
+class Time
+  def today?
+    t = Time.new
+    t.day == self.day && t.month == self.month && t.year == self.year 
+  end
+end
+
 def load_marsh file_name
   if File.exist?(file_name) && File.size(file_name) > 0
     File.open(file_name) do |f|
@@ -20,42 +35,33 @@ def add_space n
   end
 end
 
-    
-
-class MyTime
+module MyTime
   
-  @@unit_name = {"3600" => "hour", "60" => "min", "1" => "sec"}
+  # @@unit_name = {"3600" => "hour", "60" => "min", "1" => "sec"}
+  @@unit_name = {"hour" => 3600, "min" => 60, "sec" => 1}
   def self.format_time time
     @@time_s = time
-    def self.time_rec time, hash_acc, unit
-      acc = hash_acc.merge({@@unit_name[unit.to_s] => time/unit})
-      if unit > 1
-        time_rec(time%unit, acc, unit/60)
-      else
-        acc
-      end
-    end
-    @@time = time_rec time, {}, 3600
+    time_hash = {}
+    @@unit_name.inject(time) do |left, unit| # time => {"hour" => x, "min" => y, "sec" => z}
+      time_hash.merge!({unit.first => left / unit.last})      
+      left %= unit.last
+    end; time_hash
   end
-  
-  def self.format time, *add_time
+
+  def self.format time, add_time = true
     i, str = 0, ''
-    self.format_time time
-    @@unit_name.each {|key, unit| str+= self.stringify unit}
-    str + ((!add_time.empty?) ? self.add_time : "")
+    @@time = format_time time
+    @@time.inject("") {|str, unit| str += stringify unit} + (add_time ? self.add_time : "")
   end
   
-  def self.stringify unit
-    val = @@time[unit]
-    (val > 0) ? val.to_s + ' ' + unit + ((val > 1) ? 's ' : ' ') : ''
+  # transforms [unit, val] to "val" + " unit(s)" where unit is a key of @@unit_name and val, an int
+  def self.stringify unit #exemple ["min", 23] => "23 mins"
+    val = unit.last
+    (val > 0) ? val.to_s + ' ' + unit.first + ((val > 1) ? 's ' : ' ') : ''
   end
 
   def self.add_time
     "(" + @@time_s.to_s + ")"
-  end
-
-  def time_from_string str
-    
   end
 
 end
@@ -163,9 +169,18 @@ class Task
        "Current : #{current_pending + @session}s | " : "") +
       " Total : #{(pending > 0) ? current_pending + @time : @time}" +
       " | #{@status} "
-    puts add_space(@id.to_s.length) + " |====> #{@desc}"
+    puts add_space(@id.to_s.length) + " |==> #{@desc}"
   end
 
+  def total
+    MyTime.format @time
+  end
+
+  def to_hash
+    instance_variables.inject({}) do |acc, var|
+      acc.merge({var=>instance_variable_get(var)})
+    end
+  end
 
   def print_time
     @time
@@ -260,16 +275,17 @@ class Tasks
 
 end
 
-class Tm
-  
+module Tm
+
   def self.tm_load_marsh file
     load_marsh file do |f, cond|
       if cond then @@tasks = Marshal.load(f) else @@tasks = Tasks.new end
     end
   end
 
-  def self.open
-    self.tm_load_marsh 'Tasks'
+  def self.open file = 'Tasks'
+    @@file = file
+    self.tm_load_marsh file
   end
   
   def self.open_backup
@@ -290,15 +306,12 @@ class Tm
   end
 
   def self.start
-    if @@tasks.current.respond_to? :start_timer
-      @@tasks.current.start_timer
-    end
+    @@tasks.current.start_timer if @@tasks.current.respond_to? :start_timer
   end
 
   def self.stop
-    if @@tasks.current.respond_to? :stop_timer
-      @@tasks.current.stop_timer
-    end
+    Dm.trigger @@tasks.current
+    @@tasks.current.stop_timer if @@tasks.current.respond_to? :stop_timer
   end
   
   def self.switch id
@@ -363,17 +376,100 @@ class Tm
   end
   
   def self.total
-    MyTime.format @@tasks.total_time_spent, true
+    MyTime::format @@tasks.total_time_spent, true
   end
 
   def self.close
-    File.open('Tasks', 'w+') do |f|  
+    File.open(@@file, 'w+') do |f|  
       self.stop
       Marshal.dump(@@tasks, f)  
     end
   end
 end
 
-# Tm.register(8, 4, "Add an issue class\n  - Possibility to add an issue with a own timer and status \n Possibility to have multiple"
+#Day Manager
+
+class Day
+  
+  attr_reader :init_time, :date, :tasks, :task_running, :time_ran
+
+  def initialize
+    @init_time = t = Time.new
+    @date = {"year" => @init_time.year, "month" => @init_time.month, "day" => @init_time.day}
+    @tasks = []
+    @task_running = {}
+    @time_ran = 0
+  end
+
+  def register task
+    tasks.push task
+    task_running[task.id] = task.current_pending
+  end
+    
+  def update task
+    task_running[task.id] += task.current_pending
+  end
+
+  def trigger task
+    (@task_running.include? task.id) ? update(task) : register(task)
+    @time_ran += task.current_pending
+  end
+
+  def total
+    MyTime.format @time_ran
+  end
+end
+
+module Dm
+  
+  def self.load file
+    load_marsh file do |f, cond|
+      if cond then @@calendar = Marshal.load(f) else @@calendar = [Day.new] end
+    end
+  end
+
+  def self.open file = 'Calendar'
+    @@file = file
+    load file
+    init
+  end
+  
+  def self.init
+    @@today = (@@calendar.last.init_time.today?) ? @@calendar.last : Day.new
+  end
+  
+  def self.next_day task
+    task_yesterday = task
+    t = Time.now
+    since_today = (t - Time.new(t.year, t.month, t.day)).to_i
+    task_yesterday.edit({"@pending" => (task_yesterday.pending - since_today)})
+    @@today.trigger task_yesterday
+    @@today = Day.new.register task
+  end
+
+  def self.trigger task
+    next_day task if !@@today.init_time.today? # if we changed day since last trigger
+    @@today.trigger task
+  end
+
+  def self.today
+    @@today
+  end
+  
+  def self.calendar
+    @@calendar
+  end
+
+  def self.save
+    File.open(@@file, 'w+') do |f|  
+      Marshal.dump(@@calendar, f)  
+    end
+  end
+
+  def self.file= file
+    @@file = file
+  end
+
+end
 
 
