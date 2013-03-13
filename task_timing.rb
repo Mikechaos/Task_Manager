@@ -127,6 +127,13 @@ class Main
   def self.current_mod
     loader.current_mod
   end
+  
+  def self.list
+    loader.modules.each_key do |key|
+      # m.each {|key| puts "ID => #{key}"}
+      puts "ID => #{key}, file => #{loader.modules[key][:file]}"
+    end; nil
+  end
 
 end
 
@@ -168,11 +175,10 @@ class Tl
 
   # Register a new module
   def register mod
-    puts mod
     mod = TasksModule.new next_id, mod
     #Little hack, temporary
     tmp = @current_mod; @current_mod = mod; save; @current_mod = tmp
-    @modules[@next_id] = {:file => mod.file}
+    @modules[@next_id] = {:file => mod.file, :title => mod.title}
   end
 
   # Loads a module
@@ -183,7 +189,7 @@ class Tl
   end
   
   # def reopen
-  #   loader_marsh @current[:file]
+  #   loader_load_marsh @current[:file]
   # end
 
   def next_id # If accessor is called, automatically updates id
@@ -208,14 +214,13 @@ end
 ## Implements base tasks common to Module and Tasks
 class AbstractTaskManager
 
-  attr_reader :id, :file, :module_num, :estimated_time, :diff, :desc, :spent, :status, :tasks, :reflex
+  attr_reader :id, :file, :module_num, :estimated_time, :diff, :desc, :spent, :status, :tasks, :reflex,
+  :time
   
   @@status = [] 
 
   def init_rest params
-    puts default
     default.each do |sym, val|
-      puts sym.to_s + " => " + val.to_s
       if params.has_key? sym
         instance_variable_set(sym, params[sym]) 
       else 
@@ -226,7 +231,7 @@ class AbstractTaskManager
 
   def set_default sym
     if !instance_variable_defined? sym
-      instance_variable_set(sym, @@default[sym]); true
+      instance_variable_set(sym, default[sym]); true
     else
       false
     end    
@@ -286,10 +291,11 @@ class AbstractTaskManager
   end
 
   def render
-    puts "#{@id} | #{@diff} | " + 
-      ((pending > 0) ? "Current : #{current_pending + @session}s | " : "") +
-      " Total : #{(pending > 0) ? current_pending + @time : @time}" +
-      " | #{@status} "
+    puts "#{@id} | " +
+      (!diff.nil? && diff > 0 ? "#{diff} | " : "") + 
+      ((pending > 0) ? "Current : #{current_pending + session}s | " : "") +
+      " Total : #{(pending > 0) ? current_pending + time : time}" +
+      " | #{status} "
     puts add_space(@id.to_s.length) + " |==> #{@desc}"
     puts "\n Reflexion |==> #{@reflex}" if !@reflex.empty?
   end  
@@ -317,6 +323,8 @@ end
 ## Will wait for mixins for this
 class TasksModule < AbstractTaskManager
   
+
+
   attr_reader :id, :file, :module_num, :estimated_time, :diff, :desc, :spent, :status, :tasks
   
   @@status = [:new, :pending, :done]
@@ -331,12 +339,20 @@ class TasksModule < AbstractTaskManager
     init_rest params
   end
 
-  def self.default
-    @default
+  def default
+    if !@default.nil?
+      @default
+    else
+      instance_variable_set(:@default, {:@title => "New Module", :@desc=>"", :@spent => 0,
+                              :@pending => 0, :@session => 0, :@status => :new, :@reflex => "", :@module_num => 0})
+    end
   end
+
   def render
+    puts "\n###"
     puts "Module #{@module_num} - #{@title}"
     super
+    puts "###\n\n"
   end
 
 end
@@ -569,6 +585,7 @@ module Tm
   end
 
   def self.render status = nil
+    mod.render
     tasks.render_not_done; nil
   end
 
