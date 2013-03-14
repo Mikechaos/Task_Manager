@@ -414,7 +414,7 @@ class Task < AbstractTaskManager
   end  
   
 
-  # Short term hack. Will be retought
+  # Short term hack. Will be retought.
   def self._default
     {"@mod_id"=>Main.current_mod.id, "@complete_id" => "#{@mod_id}.#{@id}", 
       "@time" => 0, "@pending" => 0, "@session" => 0, "@status" => :new, "@reflex" => ""}
