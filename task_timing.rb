@@ -270,15 +270,13 @@ class AbstractTaskManager
   end
 
   def copy
-    t = Task.new(0,0,0)
+    t = Task.new(0,0,0,0)
     instance_variables.each do |var|
       t.instance_variable_set(var, instance_variable_get(var))
     end
     t
   end
   
-  
-
   def edit params
     params.each do |key, value|
       instance_variable_set(key, value)
@@ -408,6 +406,16 @@ class Task < AbstractTaskManager
     end
     @pending = 0
     @session = 0
+  end
+  
+  def self.reinit t
+    _default.each { |key, val| t.set_default(key)}
+    t
+  end  
+  
+  def self._default
+    {"@mod_id"=>Main.current_mod.id, "@complete_id" => "#{@mod_id}.#{@id}", 
+      "@time" => 0, "@pending" => 0, "@session" => 0, "@status" => :new, "@reflex" => ""}
   end
 
   def total
@@ -705,12 +713,13 @@ module Dm
   def self.split_task_over_day task
     task_yesterday = task.copy
 
-    task_yesterday.edit({"@pending" => Time.now.to_i - (task_yesterday.current_pending - Time.since_today)}).render
+    time_yesterday = task_yesterday.current_pending - Time.since_today
+    task_yesterday.edit({"@pending" => Time.now.to_i - time_yesterday}).render
     @@day.trigger task_yesterday # Add to today before changing to next day
     
     midnight_epoch = Time.new((t = Time.now).year, t.month, t.day).to_i # Epoch at 00:00 of today
     task.edit({"@pending" => midnight_epoch, 
-                "@time" => task.time + 100}).render # Needed to keep right timer (task is a reference)
+                "@time" => task.time + time_yesterday}).render # Needed to keep right timer (task is a reference)
   end
 
   def self.trigger task
@@ -744,5 +753,4 @@ module Dm
   end
 
 end
-
 
